@@ -1,0 +1,181 @@
+//
+//  Untitled.swift
+//  TestDemo
+//
+//  Created by 马亮亮 on 2025/3/27.
+//
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebView 交互测试</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        button {
+            background-color: #007AFF;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 5px;
+            margin: 5px;
+            cursor: pointer;
+        }
+        .section {
+            margin-bottom: 30px;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        #responseArea {
+            margin-top: 20px;
+            padding: 10px;
+            background-color: #f5f5f5;
+            border-radius: 5px;
+            min-height: 50px;
+        }
+    </style>
+</head>
+<body>
+    <h1>WebView 交互测试</h1>
+    
+    <div class="section">
+        <h2>1. 调用原生方法</h2>
+        <button onclick="callNativeMethod('basic')">发送基本消息</button>
+        <button onclick="callNativeMethod('complex')">发送复杂数据</button>
+        <button onclick="callNativeMethod('error')">发送错误格式</button>
+        
+        <h3>自定义消息:</h3>
+        <input type="text" id="customMessage" placeholder="输入消息内容" value="Hello from Web">
+        <button onclick="sendCustomMessage()">发送自定义消息</button>
+    </div>
+    
+    <div class="section">
+        <h2>2. 调用 JavaScript 方法</h2>
+        <button onclick="showAlertFromNative()">让原生调用 JS Alert</button>
+        <button onclick="getDataFromNative()">让原生返回数据给 JS</button>
+    </div>
+    
+    <div class="section">
+        <h2>3. 双向通信测试</h2>
+        <button onclick="testRoundTrip()">测试往返通信</button>
+        <div id="roundTripResult"></div>
+    </div>
+    
+    <div class="section">
+        <h2>响应区域</h2>
+        <div id="responseArea"></div>
+    </div>
+    
+    <script>
+        // 1. 调用原生方法
+        function callNativeMethod(type) {
+            let message;
+            switch(type) {
+                case 'basic':
+                    message = { action: "showToast", message: "这是一条基本消息" };
+                    break;
+                case 'complex':
+                    message = {
+                        action: "processData",
+                        data: {
+                            id: 123,
+                            items: ["苹果", "香蕉", "橙子"],
+                            timestamp: new Date().getTime()
+                        }
+                    };
+                    break;
+                case 'error':
+                    message = "这不是一个对象"; // 错误格式
+                    break;
+            }
+            
+            logResponse("发送到原生: " + JSON.stringify(message));
+            
+            // 调用原生方法
+            if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.nativeHandler) {
+                window.webkit.messageHandlers.nativeHandler.postMessage(message);
+            } else {
+                logResponse("错误: 原生处理器未找到");
+            }
+        }
+        
+        function sendCustomMessage() {
+            const input = document.getElementById('customMessage');
+            const message = {
+                action: "customMessage",
+                content: input.value
+            };
+            window.webkit.messageHandlers.nativeHandler.postMessage(message);
+            logResponse("发送自定义消息: " + input.value);
+        }
+        
+        // 2. 供原生调用的 JavaScript 方法
+        function showAlert(message) {
+            alert(message || "这是从原生调用的 alert");
+        }
+        
+        function displayData(data) {
+            logResponse("从原生接收到的数据: " + JSON.stringify(data));
+            return "JS已收到数据";
+        }
+        
+        // 3. 测试往返通信
+        function testRoundTrip() {
+            const startTime = new Date().getTime();
+            const message = {
+                action: "roundTripTest",
+                sentTime: startTime
+            };
+            
+            logResponse("开始往返测试，发送时间: " + startTime);
+            
+            window.webkit.messageHandlers.nativeHandler.postMessage(message);
+        }
+        
+        function showAlertFromNative() {
+            // 这个字符串会被 Swift 代码捕获并显示原生 alert
+            prompt("请输入要显示在原生 alert 的消息:", "这是来自 Web 的消息");
+        }
+        
+        function getDataFromNative() {
+            // 触发原生代码调用我们的 displayData 方法
+            const promise = window._callNativeGetData();
+            
+            promise.then(response => {
+                logResponse("Promise 接收到: " + JSON.stringify(response));
+            }).catch(error => {
+                logResponse("Promise 错误: " + error);
+            });
+        }
+        
+        // 辅助方法
+        function logResponse(text) {
+            const responseArea = document.getElementById('responseArea');
+            responseArea.innerHTML += `<p>${new Date().toLocaleTimeString()}: ${text}</p>`;
+            responseArea.scrollTop = responseArea.scrollHeight;
+        }
+        
+        // 暴露给原生的方法
+        window._handleNativeResponse = function(data) {
+            logResponse("原生直接调用JS: " + JSON.stringify(data));
+            return "来自JS的响应";
+        };
+        
+        window._callNativeGetData = function() {
+            return new Promise((resolve, reject) => {
+                // 这里模拟一个异步操作
+                setTimeout(() => {
+                    resolve({ status: "success", data: [1, 2, 3] });
+                }, 1000);
+            });
+        };
+    </script>
+</body>
+</html>

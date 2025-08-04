@@ -1,0 +1,209 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JS-Native 交互测试</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        button {
+            background-color: #007AFF;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 5px;
+            margin: 5px;
+            cursor: pointer;
+        }
+        .test-case {
+            margin-bottom: 20px;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .log {
+            margin-top: 10px;
+            padding: 10px;
+            background-color: #f5f5f5;
+            border-radius: 5px;
+            min-height: 20px;
+        }
+        input {
+            padding: 8px;
+            margin-right: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <h1>JS ↔ Native 交互测试</h1>
+    
+    <div class="test-case">
+        <h2>1. 基本消息传递</h2>
+        <button onclick="sendBasicMessage()">发送简单消息</button>
+        <button onclick="sendComplexData()">发送复杂数据</button>
+        <div class="log" id="basicLog"></div>
+    </div>
+    
+    <div class="test-case">
+        <h2>2. 调用原生功能</h2>
+        <input type="text" id="alertMessage" placeholder="输入alert内容" value="Hello from JS">
+        <button onclick="callNativeAlert()">调用原生Alert</button>
+        
+        <button onclick="getDeviceInfo()">获取设备信息</button>
+        <div class="log" id="nativeCallLog"></div>
+    </div>
+    
+    <div class="test-case">
+        <h2>3. 双向通信测试</h2>
+        <button onclick="testRoundTrip()">测试往返通信</button>
+        <div class="log" id="roundTripLog"></div>
+    </div>
+    
+    <div class="test-case">
+        <h2>4. 错误处理测试</h2>
+        <button onclick="sendMalformedData()">发送错误格式数据</button>
+        <button onclick="callUndefinedMethod()">调用不存在的方法</button>
+        <div class="log" id="errorLog"></div>
+    </div>
+    
+    <div class="test-case">
+        <h2>5. 原生调用JS测试</h2>
+        <button onclick="setupCallback()">设置JS回调函数</button>
+        <div class="log" id="callbackLog"></div>
+    </div>
+
+    <script>
+        // 1. 基本消息传递 ======================================
+        function sendBasicMessage() {
+            const message = {
+                action: "logMessage",
+                content: "这是一条来自JS的基本消息",
+                timestamp: Date.now()
+            };
+            postMessage(message, "basicLog");
+        }
+        
+        function sendComplexData() {
+            const message = {
+                action: "processData",
+                data: {
+                    user: {
+                        id: 123,
+                        name: "张三",
+                        isPremium: true
+                    },
+                    items: ["苹果", "香蕉", "橙子"],
+                    metadata: {
+                        version: "1.0.0",
+                        environment: "development"
+                    }
+                }
+            };
+            postMessage(message, "basicLog");
+        }
+        
+        // 2. 调用原生功能 ======================================
+        function callNativeAlert() {
+            const input = document.getElementById('alertMessage');
+            const message = {
+                action: "showAlert",
+                message: input.value || "默认消息"
+            };
+            postMessage(message, "nativeCallLog");
+        }
+        
+        function getDeviceInfo() {
+            const message = {
+                action: "getDeviceInfo"
+            };
+            postMessage(message, "nativeCallLog");
+        }
+        
+        // 3. 双向通信测试 ======================================
+        function testRoundTrip() {
+            const startTime = Date.now();
+            const logElement = document.getElementById('roundTripLog');
+            logElement.textContent = `[${formatTime()}] 开始测试...`;
+            
+            const message = {
+                action: "roundTripTest",
+                sentTime: startTime
+            };
+            
+            if (window.webkit && window.webkit.messageHandlers.nativeHandler) {
+                window.webkit.messageHandlers.nativeHandler.postMessage(message);
+                logElement.textContent += `\n[${formatTime()}] 已发送消息`;
+            } else {
+                logElement.textContent += `\n[${formatTime()}] 错误: 原生处理器未找到`;
+            }
+        }
+        
+        // 4. 错误处理测试 ======================================
+        function sendMalformedData() {
+            // 故意发送错误格式的数据
+            try {
+                window.webkit.messageHandlers.nativeHandler.postMessage("这不是一个对象");
+                log("已发送错误格式数据", "errorLog");
+            } catch (e) {
+                log("发送错误: " + e.message, "errorLog");
+            }
+        }
+        
+        function callUndefinedMethod() {
+            try {
+                // 调用不存在的处理器
+                window.webkit.messageHandlers.nonExistentHandler.postMessage({});
+                log("已调用不存在的方法", "errorLog");
+            } catch (e) {
+                log("调用错误: " + e.message, "errorLog");
+            }
+        }
+        
+        // 5. 原生调用JS测试 ======================================
+        function setupCallback() {
+            // 暴露方法给原生调用
+            window.nativeCallback = function(data) {
+                log(`收到原生回调: ${JSON.stringify(data)}`, "callbackLog");
+                return "这是来自JS的响应";
+            };
+            log("已设置回调函数 window.nativeCallback", "callbackLog");
+        }
+        
+        // 工具函数 ==============================================
+        function postMessage(message, logId) {
+            const logElement = document.getElementById(logId);
+            log(`发送: ${JSON.stringify(message)}`, logId);
+            
+            if (window.webkit && window.webkit.messageHandlers.nativeHandler) {
+                window.webkit.messageHandlers.nativeHandler.postMessage(message);
+            } else {
+                log("错误: 原生处理器未找到", logId);
+            }
+        }
+        
+        function log(message, logId) {
+            const logElement = document.getElementById(logId);
+            logElement.textContent += `[${formatTime()}] ${message}\n`;
+            logElement.scrollTop = logElement.scrollHeight;
+        }
+        
+        function formatTime() {
+            return new Date().toLocaleTimeString();
+        }
+        
+        // 初始化日志
+        document.querySelectorAll('.log').forEach(el => {
+            el.textContent = `[${formatTime()}] 准备就绪\n`;
+        });
+    </script>
+</body>
+</html>
