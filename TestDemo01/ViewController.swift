@@ -104,7 +104,9 @@ extension ViewController: UITableViewDataSource, UITableViewDelegate {
         case .liveGift:
             let vc = ALLiveGiftController()
             navigationController?.pushViewController(vc, animated: true)
-            
+        case .jxSegment:
+            let vc = JXSegmentController()
+            navigationController?.pushViewController(vc, animated: true)
             
         }
     }
@@ -143,4 +145,6 @@ enum PageType: String, CaseIterable {
     case collection = "ALCollectionController"
     
     case liveGift = "ALLiveViewController"
+    
+    case jxSegment = "JXSegmentController"
 }

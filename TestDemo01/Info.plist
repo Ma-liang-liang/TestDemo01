@@ -21,5 +21,13 @@
 			</array>
 		</dict>
 	</dict>
+	<key>NSCameraUsageDescription</key>
+	<string>Live stream and setting user profile photo requires camera permission, allow?</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Photo Album permissions need to be opened, live stream cover needs to upload pictures, allow?</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Photo Album permissions need to be opened, live stream cover needs to upload pictures, allow?</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Live stream requires recording permission, allow?</string>
 </dict>
 </plist>
