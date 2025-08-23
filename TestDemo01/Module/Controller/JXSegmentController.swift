@@ -6,27 +6,52 @@ class JXSegmentController: SKBaseController {
     // MARK: - Properties
     private let titles: [String]
     
-    // UI Elements
-    private lazy var segmentedView = JXSegmentedView()
-    private lazy var titleDataSource = SegLoadingTitleDataSource()
-    private lazy var underlineIndicator = JXSegmentedIndicatorLineView()
-    private var listContainerView: JXSegmentedListContainerView!
+    // MARK: - UI Elements (Lazy Loading)
+    private lazy var segmentedView: JXSegmentedView = {
+        let view = JXSegmentedView()
+        view.translatesAutoresizingMaskIntoConstraints = false
+        view.dataSource = titleDataSource
+        view.delegate = self
+        view.indicators = [underlineIndicator]
+        view.contentEdgeInsetLeft = 16
+        return view
+    }()
     
-    // The current implementation looks correct, but ensure the child controllers array is properly typed:
-    private var childControllers: [UIViewController & JXSegmentedListContainerViewListDelegate] = []
+    private lazy var titleDataSource: SegLoadingTitleDataSource = {
+        let dataSource = SegLoadingTitleDataSource()
+        dataSource.titles = titles
+        dataSource.titleNormalColor = UIColor.label.withAlphaComponent(0.6)
+        dataSource.titleSelectedColor = UIColor.label
+        dataSource.titleNormalFont = .systemFont(ofSize: 18, weight: .semibold)
+        dataSource.itemSpacing = 24
+        dataSource.isItemSpacingAverageEnabled = false
+        dataSource.loadingStates = Array(repeating: false, count: titles.count)
+        return dataSource
+    }()
     
-//    override var needNavBar: Bool {
-//        false
-//    }
+    private lazy var underlineIndicator: JXSegmentedIndicatorLineView = {
+        let indicator = JXSegmentedIndicatorLineView()
+        indicator.indicatorWidth = 28
+        indicator.indicatorHeight = 3
+        indicator.indicatorColor = .systemBlue
+        indicator.indicatorCornerRadius = 1.5
+        indicator.verticalOffset = 3
+        return indicator
+    }()
     
-    // In setupChildControllers method:
-    private func setupChildControllers() {
-        childControllers = [
+    private lazy var listContainerView: JXSegmentedListContainerView = {
+        let containerView = JXSegmentedListContainerView(dataSource: self)
+        containerView.translatesAutoresizingMaskIntoConstraints = false
+        return containerView
+    }()
+    
+    private lazy var childControllers: [UIViewController & JXSegmentedListContainerViewListDelegate] = {
+        return [
             FollowViewController(),
-            HotViewController(), 
+            HotViewController(),
             ConnectViewController()
         ]
-    }
+    }()
     
     // MARK: - Initialization
     init(titles: [String] = ["Follow", "Hot", "Connect"]) {
@@ -41,15 +66,17 @@ class JXSegmentController: SKBaseController {
     // MARK: - Lifecycle
     override func viewDidLoad() {
         super.viewDidLoad()
-        setupChildControllers()
+        setupUI()
+    }
+    
+    // MARK: - Setup Methods
+    private func setupUI() {
         setupSegmented()
         setupListContainerView()
     }
     
-    // MARK: - Setup Methods
     private func setupSegmented() {
         view.addSubview(segmentedView)
-        segmentedView.translatesAutoresizingMaskIntoConstraints = false
         
         NSLayoutConstraint.activate([
             segmentedView.topAnchor.constraint(equalTo: self.navBar.bottomAnchor),
@@ -58,34 +85,11 @@ class JXSegmentController: SKBaseController {
             segmentedView.heightAnchor.constraint(equalToConstant: 44)
         ])
         
-        // 配置数据源
-        titleDataSource.titles = titles
-        titleDataSource.titleNormalColor = UIColor.label.withAlphaComponent(0.6)
-        titleDataSource.titleSelectedColor = UIColor.label
-        titleDataSource.titleNormalFont = .systemFont(ofSize: 18, weight: .semibold)
-        titleDataSource.itemSpacing = 24
-        titleDataSource.isItemSpacingAverageEnabled = false
-        titleDataSource.loadingStates = Array(repeating: false, count: titles.count)
-        
-        // 配置指示器
-        underlineIndicator.indicatorWidth = 28
-        underlineIndicator.indicatorHeight = 3
-        underlineIndicator.indicatorColor = .systemBlue
-        underlineIndicator.indicatorCornerRadius = 1.5
-        underlineIndicator.verticalOffset = 3
-        
-        segmentedView.dataSource = titleDataSource
-        segmentedView.delegate = self
-        segmentedView.indicators = [underlineIndicator]
-        segmentedView.contentEdgeInsetLeft = 16
         segmentedView.reloadData()
     }
     
     private func setupListContainerView() {
-        listContainerView = JXSegmentedListContainerView(dataSource: self)
-        
         view.addSubview(listContainerView)
-        listContainerView.translatesAutoresizingMaskIntoConstraints = false
         
         NSLayoutConstraint.activate([
             listContainerView.topAnchor.constraint(equalTo: segmentedView.bottomAnchor),
