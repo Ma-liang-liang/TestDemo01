@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		D89D3D292EDC853C00A92D76 /* SwiftUIX in Frameworks */ = {isa = PBXBuildFile; productRef = D89D3D282EDC853C00A92D76 /* SwiftUIX */; };
 		EE1F5B93FE5507EBE9C717CC /* Pods_TestDemo01.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 54B982CF03CE69E10B657057 /* Pods_TestDemo01.framework */; };
 /* End PBXBuildFile section */
 
@@ -44,6 +45,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				EE1F5B93FE5507EBE9C717CC /* Pods_TestDemo01.framework in Frameworks */,
+				D89D3D292EDC853C00A92D76 /* SwiftUIX in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -134,6 +136,9 @@
 			);
 			mainGroup = 1CBD512F2E40D83C00E60A3D;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				D89D3D272EDC853C00A92D76 /* XCRemoteSwiftPackageReference "SwiftUIX" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 1CBD51392E40D83C00E60A3D /* Products */;
 			projectDirPath = "";
@@ -416,6 +421,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		D89D3D272EDC853C00A92D76 /* XCRemoteSwiftPackageReference "SwiftUIX" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/SwiftUIX/SwiftUIX.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.2.4;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		D89D3D282EDC853C00A92D76 /* SwiftUIX */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D89D3D272EDC853C00A92D76 /* XCRemoteSwiftPackageReference "SwiftUIX" */;
+			productName = SwiftUIX;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 1CBD51302E40D83C00E60A3D /* Project object */;
 }
