@@ -24,6 +24,10 @@ pod 'AlertToast'
 pod 'MijickPopups', '~> 4.0.0'
 pod 'JXPagingView/Paging'
 pod 'JXSegmentedView'
+pod 'YYImage'
+pod 'YYImage/WebP'  # 添加 WebP 支持，用于加载 .webp 格式的动图
+pod 'YYText'
+pod 'libwebp'
 
 
 end
