@@ -19,7 +19,7 @@ class NTFlexTagsController: SKBaseController {
         view.layer.cornerRadius = 8
         view.itemSpacing = 10
         view.lineSpacing = 10
-        view.contentInset = UIEdgeInsets(top: 12, left: 12, bottom: 12, right: 12)
+        view.contentInset = UIEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
         view.alignment = .left
         return view
     }()
@@ -46,6 +46,45 @@ class NTFlexTagsController: SKBaseController {
         view.contentInset = UIEdgeInsets(top: 12, left: 12, bottom: 12, right: 12)
         view.alignment = .right
         return view
+    }()
+    
+    /// 左对齐标签视图的验证 Label
+    private lazy var leftVerifyLabel: UILabel = {
+        let label = UILabel()
+        label.backgroundColor = UIColor.systemRed.withAlphaComponent(0.3)
+        label.textColor = .systemRed
+        label.font = UIFont.systemFont(ofSize: 10)
+        label.textAlignment = .center
+        label.layer.cornerRadius = 4
+        label.layer.masksToBounds = true
+        label.text = "验证最后一行宽度"
+        return label
+    }()
+    
+    /// 居中对齐标签视图的验证 Label
+    private lazy var centerVerifyLabel: UILabel = {
+        let label = UILabel()
+        label.backgroundColor = UIColor.systemBlue.withAlphaComponent(0.3)
+        label.textColor = .systemBlue
+        label.font = UIFont.systemFont(ofSize: 10)
+        label.textAlignment = .center
+        label.layer.cornerRadius = 4
+        label.layer.masksToBounds = true
+        label.text = "验证最后一行宽度"
+        return label
+    }()
+    
+    /// 右对齐标签视图的验证 Label
+    private lazy var rightVerifyLabel: UILabel = {
+        let label = UILabel()
+        label.backgroundColor = UIColor.systemGreen.withAlphaComponent(0.3)
+        label.textColor = .systemGreen
+        label.font = UIFont.systemFont(ofSize: 10)
+        label.textAlignment = .center
+        label.layer.cornerRadius = 4
+        label.layer.masksToBounds = true
+        label.text = "验证最后一行宽度"
+        return label
     }()
     
     /// 滚动视图
@@ -77,6 +116,62 @@ class NTFlexTagsController: SKBaseController {
         leftTagsView.performLayout()
         centerTagsView.performLayout()
         rightTagsView.performLayout()
+        
+        // 更新验证 Label 的位置和大小
+        updateVerifyLabels()
+    }
+    
+    /// 更新验证 Label 的位置和大小
+    private func updateVerifyLabels() {
+        // 左对齐验证 Label
+        updateVerifyLabel(
+            leftVerifyLabel,
+            for: leftTagsView,
+            contentInset: UIEdgeInsets(top: 0, left: 12, bottom: 0, right: 12)
+        )
+        
+        // 居中对齐验证 Label
+        updateVerifyLabel(
+            centerVerifyLabel,
+            for: centerTagsView,
+            contentInset: UIEdgeInsets(top: 12, left: 12, bottom: 12, right: 12)
+        )
+        
+        // 右对齐验证 Label
+        updateVerifyLabel(
+            rightVerifyLabel,
+            for: rightTagsView,
+            contentInset: UIEdgeInsets(top: 12, left: 12, bottom: 12, right: 12)
+        )
+    }
+    
+    /// 更新单个验证 Label
+    private func updateVerifyLabel(_ label: UILabel, for tagsView: NTFlexTagsView, contentInset: UIEdgeInsets) {
+        let lastLineWidth = tagsView.lastLineWidth
+        let containerWidth = tagsView.bounds.width - contentInset.left - contentInset.right
+        
+        // 根据对齐方式计算起始 X 坐标
+        var startX: CGFloat = contentInset.left
+        switch tagsView.alignment {
+        case .left:
+            startX = contentInset.left
+        case .center:
+            startX = (tagsView.bounds.width - lastLineWidth) / 2
+        case .right:
+            startX = tagsView.bounds.width - contentInset.right - lastLineWidth
+        }
+        
+        // 更新 Label 的 frame
+        let labelY = tagsView.frame.origin.y + tagsView.contentHeight + 4
+        label.frame = CGRect(
+            x: tagsView.frame.origin.x + startX,
+            y: labelY,
+            width: lastLineWidth,
+            height: 20
+        )
+        
+        // 更新文字显示宽度值
+        label.text = String(format: "最后一行宽度: %.1f", lastLineWidth)
     }
     
     // MARK: - Setup
@@ -101,6 +196,11 @@ class NTFlexTagsController: SKBaseController {
             centerTagsView
             rightTagsView
         }
+        
+        // 添加验证 Label 到 view（不是 contentView，避免影响 contentView 的高度计算）
+        view.addSubview(leftVerifyLabel)
+        view.addSubview(centerVerifyLabel)
+        view.addSubview(rightVerifyLabel)
         
         // 左对齐标签视图约束
         leftTagsView.snp.makeConstraints { make in

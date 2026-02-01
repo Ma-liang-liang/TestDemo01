@@ -51,6 +51,9 @@ class NTFlexTagsView: UIView {
     /// 获取布局后的最终高度
     private(set) var contentHeight: CGFloat = 0
     
+    /// 获取最后一行标签所占据的宽度
+    private(set) var lastLineWidth: CGFloat = 0
+    
     /// 获取所有标签视图
     var tagViews: [UIView] {
         return tagsContainer.subviews
@@ -234,6 +237,9 @@ class NTFlexTagsView: UIView {
         
         // 计算最终高度（减去最后一行的行间距）
         contentHeight = currentY > 0 ? currentY - lineSpacing + contentInset.top + contentInset.bottom : contentInset.top + contentInset.bottom
+        
+        // 记录最后一行标签所占据的宽度
+        lastLineWidth = lineWidths.last ?? 0
         
         // 更新高度约束
         flexHeightConstraint?.deactivate()
