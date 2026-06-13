@@ -30,6 +30,12 @@ class ViewController: SKBaseController {
         
         self.navBar.isHidden = true
         
+        if let nav = navigationController {
+            nav.setNavigationBarHidden(true, animated: false)
+            nav.stackId = .demo
+            CGNavigationManager.shared.setNavigationStack(nav, forId: .demo)
+            CGNavigationManager.shared.switchToStack(id: .demo)
+        }
     }
     
     override func viewDidAppear(_ animated: Bool) {
@@ -83,9 +89,6 @@ extension ViewController: UITableViewDataSource, UITableViewDelegate {
         case .iconFont:
             let vc = IconFontController()
             navigationController?.pushViewController(vc, animated: true)
-        case .storeBox:
-            let vc = StoreBoxController()
-            navigationController?.pushViewController(vc, animated: true)
         case .theme:
             let vc = SKThemeSetController()
             navigationController?.pushViewController(vc, animated: true)
@@ -107,7 +110,9 @@ extension ViewController: UITableViewDataSource, UITableViewDelegate {
         case .jxSegment:
             let vc = JXSegmentController()
             navigationController?.pushViewController(vc, animated: true)
-            
+        case .imageShop:
+            let vc = UIHostingController(rootView: ImageShopPage())
+            navigationController?.pushViewController(vc, animated: true)
         }
     }
     
@@ -132,8 +137,6 @@ enum PageType: String, CaseIterable {
     
     case iconFont = "IconFontController"
     
-    case storeBox = "StoreBoxController"
-    
     case theme = "SKThemeSetController"
     
     case liveBroadcast = "ALLiveBroadcastController"
@@ -147,4 +150,6 @@ enum PageType: String, CaseIterable {
     case liveGift = "ALLiveViewController"
     
     case jxSegment = "JXSegmentController"
+    
+    case imageShop = "ImageShopPage"
 }

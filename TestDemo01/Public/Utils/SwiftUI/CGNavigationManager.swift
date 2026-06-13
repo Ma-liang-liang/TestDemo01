@@ -12,6 +12,7 @@ enum CGStackIdentifier: String, CaseIterable {
     case main = "mainStack"
     case explore = "exploreStack"
     case profile = "profileStack"
+    case demo = "demoStack"
 }
 
 // MARK: - 运行时关联 Key

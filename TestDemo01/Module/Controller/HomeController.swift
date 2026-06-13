@@ -17,10 +17,18 @@ class HomeController: SKBaseController {
         
         view.backgroundColor = .white
         
+        // 将当前 UIKit 导航栈注册到 CGNavigationManager
+        if let nav = navigationController {
+            nav.stackId = .demo
+            CGNavigationManager.shared.setNavigationStack(nav, forId: .demo)
+            CGNavigationManager.shared.switchToStack(id: .demo)
+        }
+        
         view.addSubviews {
             jumpBtn
             jumpBtn1
             jumpBtn2
+            jumpBtnChat
         }
         
         jumpBtn.snp.makeConstraints { make in
@@ -36,6 +44,12 @@ class HomeController: SKBaseController {
         
         jumpBtn2.snp.makeConstraints { make in
             make.top.equalTo(jumpBtn1.snp.bottom).offset(40)
+            make.leading.equalToSuperview().offset(100)
+            make.height.equalTo(36)
+        }
+        
+        jumpBtnChat.snp.makeConstraints { make in
+            make.top.equalTo(jumpBtn2.snp.bottom).offset(40)
             make.leading.equalToSuperview().offset(100)
             make.height.equalTo(36)
         }
@@ -63,6 +77,8 @@ class HomeController: SKBaseController {
         } else if sender == jumpBtn2 {
             let vc = ALCollectionController()
             navigationController?.pushViewController(vc, animated: true)
+        } else if sender == jumpBtnChat {
+            CGNavigationManager.shared.push(ALChatPage(), stackId: .demo)
         }
     }
     
@@ -86,6 +102,14 @@ class HomeController: SKBaseController {
         let button = UIButton()
         button.setTitle("  跳转2  ", for: .normal)
         button.setTitleColor(.red, for: .normal)
+        button.addTarget(self, action: #selector(onJumpClick), for: .touchUpInside)
+        return button
+    }()
+    
+    lazy var jumpBtnChat: UIButton = {
+        let button = UIButton()
+        button.setTitle("  聊天页面  ", for: .normal)
+        button.setTitleColor(.systemBlue, for: .normal)
         button.addTarget(self, action: #selector(onJumpClick), for: .touchUpInside)
         return button
     }()
