@@ -128,6 +128,7 @@ struct GridContentView: View {
             }
         }
         .padding()
+        .navigationBar(title: "自定义下拉刷新")
     }
 }
 

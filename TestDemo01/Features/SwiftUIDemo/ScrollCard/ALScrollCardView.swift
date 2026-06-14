@@ -33,6 +33,7 @@ struct ALScrollCardView: View {
                     Text("LazyVStack")
                 }
         }
+        .navigationBar(title: "滚动卡片")
     }
 }
 

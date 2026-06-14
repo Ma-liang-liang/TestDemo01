@@ -57,10 +57,7 @@ extension SwiftUIDemoListController: UITableViewDataSource, UITableViewDelegate 
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
         let demo = demos[indexPath.row]
-        let wrappedView = CGBackButtonWrapper {
-            demo.view
-        }
-        let vc = UIHostingController(rootView: wrappedView)
+        let vc = UIHostingController(rootView: demo.view)
         CGNavigationManager.shared.push(vc, stackId: .swiftUI)
     }
 }

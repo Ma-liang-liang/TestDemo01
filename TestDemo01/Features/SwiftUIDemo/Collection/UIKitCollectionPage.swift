@@ -1,5 +1,6 @@
 import UIKit
 import SwiftUI
+import SnapKit
 
 // MARK: - 1. SwiftUI View for Cell Content
 struct SimpleSwiftUICellContent: View {
@@ -35,7 +36,7 @@ struct SimpleSwiftUICellContent: View {
 }
 
 // MARK: - 2. UIKit View Controller
-class UIKitCollectionPage: UIViewController, UICollectionViewDataSource {
+class UIKitCollectionPage: SKBaseController, UICollectionViewDataSource {
     
     var collectionView: UICollectionView!
     let cellId = "cellId"
@@ -44,7 +45,7 @@ class UIKitCollectionPage: UIViewController, UICollectionViewDataSource {
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .systemBackground
-        title = "UIKit Collection + SwiftUI"
+        navBar.titleLabel.text = "UIKit Collection + SwiftUI"
         
         setupCollectionView()
     }
@@ -71,8 +72,7 @@ class UIKitCollectionPage: UIViewController, UICollectionViewDataSource {
             return section
         }
         
-        collectionView = UICollectionView(frame: view.bounds, collectionViewLayout: layout)
-        collectionView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        collectionView = UICollectionView(frame: .zero, collectionViewLayout: layout)
         collectionView.backgroundColor = .systemBackground
         collectionView.dataSource = self
         
@@ -82,6 +82,10 @@ class UIKitCollectionPage: UIViewController, UICollectionViewDataSource {
         collectionView.register(SwiftUIBaseCollectionViewCell.self, forCellWithReuseIdentifier: legacyCellId)
         
         view.addSubview(collectionView)
+        collectionView.snp.makeConstraints { make in
+            make.top.equalTo(navBar.snp.bottom)
+            make.leading.trailing.bottom.equalToSuperview()
+        }
     }
     
     // MARK: UICollectionViewDataSource

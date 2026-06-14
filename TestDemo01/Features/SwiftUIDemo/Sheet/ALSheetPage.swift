@@ -52,6 +52,7 @@ struct ALSheetPage: View {
             showContent = false
             triggerPresentAnimation()
         }
+        .navigationBar(title: "Sheet弹出")
     }
     
     private func triggerPresentAnimation() {
