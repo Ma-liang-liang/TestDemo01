@@ -29,6 +29,9 @@ class UIKitDemoListController: SKBaseController {
             ("HomeController", { HomeController() }),
             ("主题切换", { SKThemeSetController() }),
         ]),
+        ("算法练习", [
+            ("算法题库（每周两题）", { AlgorithmListController() }),
+        ]),
     ]
 
     override var needNavBar: Bool { false }
