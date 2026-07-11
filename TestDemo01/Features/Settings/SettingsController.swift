@@ -63,3 +63,25 @@ extension SettingsController: UITableViewDataSource, UITableViewDelegate {
         }
     }
 }
+
+
+func test1(s: String) -> Bool {
+    
+    var stack = [Character]()
+    let dict: [Character: Character] = ["}": "{", "]": "[", ")": "("]
+    
+    for char in s {
+        
+        if let left = dict[char] {
+            guard let last = stack.popLast(), last == left else {
+                return false
+            }
+            
+        } else {
+            stack.append(char)
+        }
+        
+    }
+    
+    return stack.isEmpty
+}

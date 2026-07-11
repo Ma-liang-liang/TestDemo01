@@ -25,6 +25,9 @@ class UIKitDemoListController: SKBaseController {
             ("API网络请求", { ThirdController() }),
             ("WebView", { WebViewController(url: "https://www.baidu.com/") }),
         ]),
+        ("硬件通信", [
+            ("蓝牙通信优化", { BluetoothDemoController() }),
+        ]),
         ("其他", [
             ("HomeController", { HomeController() }),
             ("主题切换", { SKThemeSetController() }),
