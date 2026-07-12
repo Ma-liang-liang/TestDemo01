@@ -66,6 +66,10 @@ struct BluetoothTransferOptions {
     var writeType: CBCharacteristicWriteType?
     /// 是否使用应用层帧（包头+CRC），关闭后走裸数据写入
     var useApplicationFrame: Bool = true
+    /// 是否支持断点续传（默认 false）
+    /// 开启后：断连时保存已确认的 offset，重连后自动从断点继续传输
+    /// 注意：开启时原始数据会保留在内存中直到传输完成或取消
+    var supportsResume: Bool = false
 }
 
 // MARK: - 帧类型

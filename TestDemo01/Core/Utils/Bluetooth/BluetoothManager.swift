@@ -91,6 +91,10 @@ protocol BluetoothManagerDelegate: AnyObject {
     func bluetoothManager(_ manager: BluetoothManager, didUpdateMetrics metrics: BluetoothMetricSnapshot)
     /// 发生错误
     func bluetoothManager(_ manager: BluetoothManager, didFail error: Error)
+    /// 传输因断连被暂停（仅当 supportsResume = true 时触发）
+    func bluetoothManager(_ manager: BluetoothManager, didPauseTransfer id: UUID, ackedOffset: Int)
+    /// 传输从断点恢复（重连后自动恢复）
+    func bluetoothManager(_ manager: BluetoothManager, didResumeTransfer id: UUID, fromOffset: Int)
 }
 
 /// 协议方法的默认空实现，让使用方可以只实现关心的回调
@@ -106,6 +110,8 @@ extension BluetoothManagerDelegate {
     func bluetoothManager(_ manager: BluetoothManager, didCompleteTransfer id: UUID) {}
     func bluetoothManager(_ manager: BluetoothManager, didUpdateMetrics metrics: BluetoothMetricSnapshot) {}
     func bluetoothManager(_ manager: BluetoothManager, didFail error: Error) {}
+    func bluetoothManager(_ manager: BluetoothManager, didPauseTransfer id: UUID, ackedOffset: Int) {}
+    func bluetoothManager(_ manager: BluetoothManager, didResumeTransfer id: UUID, fromOffset: Int) {}
 }
 
 // MARK: - 错误类型
@@ -196,6 +202,11 @@ final class BluetoothManager: NSObject {
     private var activeTransfer: ActiveTransfer?
     /// 运行时指标
     private var metrics = BluetoothMetricSnapshot()
+
+    /// 断点续传上下文（断连时保存，重连后恢复）
+    private var pendingResume: (data: Data, maxPayloadLength: Int, options: BluetoothTransferOptions, ackedOffset: Int, transferId: UUID)?
+    /// 进度回调节流时间戳
+    private var lastProgressNotifyTime: Date?
 
     /// 连接状态机线程安全锁
     private let stateLock = NSLock()
@@ -413,13 +424,12 @@ final class BluetoothManager: NSObject {
                 return
             }
 
-            // 按 MTU 分块
+            // 按 MTU 分块（ActiveTransfer 内部懒加载，不会一次性创建所有帧）
             let maxLength = max(1, self.connectedPeripheral?.maximumWriteValueLength(for: type) ?? 20)
-            let chunks = self.chunk(data: data, maxLength: maxLength)
             // 构建传输对象（fireAndForget 模式，不加应用层帧）
             self.activeTransfer = ActiveTransfer(
-                encodedFrames: chunks,
-                payloadSizes: chunks.map(\.count),
+                data: data,
+                maxPayloadLength: maxLength,
                 options: BluetoothTransferOptions(
                     role: role,
                     reliability: .fireAndForget,
@@ -468,19 +478,16 @@ final class BluetoothManager: NSObject {
             }
             // payload 长度 = min(配置值, MTU - 头部)
             let payloadLength = max(1, min(options.maxPayloadLength ?? maximumWriteLength - headerLength, maximumWriteLength - headerLength))
-            // 将原始数据拆分为应用层帧
-            let frames = BluetoothProtocolCodec.makeDataFrames(data: data, maxPayloadLength: payloadLength)
-            // 将帧编码为字节流
-            let encodedFrames = frames.map(BluetoothProtocolCodec.encode)
 
             // 更新配置中的实际写入方式和 payload 长度
             var resolvedOptions = options
             resolvedOptions.writeType = type
             resolvedOptions.maxPayloadLength = payloadLength
 
+            // ActiveTransfer 内部懒加载帧，不会一次性创建全部帧对象
             self.activeTransfer = ActiveTransfer(
-                encodedFrames: encodedFrames,
-                payloadSizes: frames.map { $0.payload.count },
+                data: data,
+                maxPayloadLength: payloadLength,
                 options: resolvedOptions
             )
             self.flushActiveTransfer()
@@ -764,6 +771,30 @@ final class BluetoothManager: NSObject {
         connectionState = .ready(peripheral.identifier)
         notifyReadyRoles()
         notifyMetrics()
+        // 如果有待恢复的断点续传，自动恢复
+        resumePendingTransferIfNeeded()
+    }
+
+    /// 检查是否有待恢复的断点续传，有则自动恢复
+    private func resumePendingTransferIfNeeded() {
+        guard let ctx = pendingResume,
+              characteristicsByRole[ctx.options.role] != nil,
+              activeTransfer == nil else { return }
+
+        // 从断点创建新的传输
+        activeTransfer = ActiveTransfer(
+            data: ctx.data,
+            maxPayloadLength: ctx.maxPayloadLength,
+            options: ctx.options,
+            resumeOffset: ctx.ackedOffset
+        )
+        let resumedId = ctx.transferId
+        let resumedOffset = ctx.ackedOffset
+        pendingResume = nil
+        flushActiveTransfer()
+        DispatchQueue.main.async {
+            self.delegates.forEach { $0.bluetoothManager(self, didResumeTransfer: resumedId, fromOffset: resumedOffset) }
+        }
     }
 
     // MARK: - 内部：工具方法
@@ -808,9 +839,16 @@ final class BluetoothManager: NSObject {
         }
     }
 
-    /// 通知 delegate 传输进度
+    /// 通知 delegate 传输进度（节流：最少间隔 100ms，传输完成时立即通知）
     private func notifyProgress() {
         guard let transfer = activeTransfer else { return }
+        let now = Date()
+        let isComplete = transfer.isComplete
+        // 节流：非完成状态下至少间隔 0.1 秒，避免高频回调卡顿主线程
+        if !isComplete, let last = lastProgressNotifyTime, now.timeIntervalSince(last) < 0.1 {
+            return
+        }
+        lastProgressNotifyTime = now
         let progress = BluetoothPacketProgress(
             sentBytes: transfer.ackedPayloadBytes,
             totalBytes: transfer.totalPayloadBytes
@@ -912,6 +950,8 @@ extension BluetoothManager: CBCentralManagerDelegate {
         connectedDevice = device
         connectedPeripheral = peripheral
         peripheral.delegate = self
+        // iOS 上 CoreBluetooth 会自动协商 MTU 到双方支持的最大值
+        // maximumWriteValueLength(for:) 会返回协商后的最大写入长度
         // 进入服务发现阶段
         connectionState = .discovering(peripheral.identifier)
         peripheral.discoverServices(configuration.profile.serviceUUIDs)
@@ -933,8 +973,28 @@ extension BluetoothManager: CBCentralManagerDelegate {
         // 清理特征缓存
         characteristicsByRole.removeAll()
         characteristicRolesByUUID.removeAll()
-        // 取消正在进行的传输
-        cancelActiveTransfer()
+        // 处理正在进行的传输
+        if let transfer = activeTransfer {
+            if transfer.options.supportsResume && error != nil {
+                // 断点续传：保存上下文，等待重连后恢复
+                pendingResume = (
+                    data: transfer.sourceDataCopy,
+                    maxPayloadLength: transfer.maxPayloadLength,
+                    options: transfer.options,
+                    ackedOffset: transfer.ackedOffset,
+                    transferId: transfer.id
+                )
+                let pausedId = transfer.id
+                let pausedOffset = transfer.ackedOffset
+                cancelActiveTransfer()
+                DispatchQueue.main.async {
+                    self.delegates.forEach { $0.bluetoothManager(self, didPauseTransfer: pausedId, ackedOffset: pausedOffset) }
+                }
+            } else {
+                // 不支持续传或主动断开 → 直接取消
+                cancelActiveTransfer()
+            }
+        }
         connectionState = .disconnected(peripheral.identifier)
         DispatchQueue.main.async {
             self.delegates.forEach { $0.bluetoothManager(self, didDisconnect: device, error: error) }
@@ -1047,6 +1107,7 @@ extension BluetoothManager: CBPeripheralDelegate {
 // MARK: - ActiveTransfer（传输上下文）
 
 /// 一次传输的完整上下文，管理数据包队列、ACK 状态、重试和超时。
+/// 采用懒加载设计：只保存原始 Data，按需生成帧，避免大文件一次性加载全部帧到内存。
 /// 生命周期：创建 → flushActiveTransfer 循环写入 → 全部 ACK → complete
 private final class ActiveTransfer {
 
@@ -1054,7 +1115,7 @@ private final class ActiveTransfer {
     struct Packet {
         /// 包序号（用于 ACK 匹配）
         let sequence: UInt32
-        /// 编码后的帧数据（含头部）
+        /// 编码后的帧数据（含头部或裸数据）
         let data: Data
         /// 原始 payload 大小（不含头部，用于进度统计）
         let payloadSize: Int
@@ -1067,48 +1128,108 @@ private final class ActiveTransfer {
     /// 总 payload 字节数（用于进度计算）
     let totalPayloadBytes: Int
 
-    /// 全部数据包（按序号排列）
-    private let packets: [Packet]
+    // MARK: 懒加载数据源
+
+    /// 原始数据（仅保存引用，不预创建全部帧）
+    private let sourceData: Data
+    /// 每帧 payload 最大长度
+    let maxPayloadLength: Int
+    /// 是否使用应用层帧（sendRaw = false, sendReliableData = true）
+    private let useApplicationFrame: Bool
+    /// 总帧数
+    private let totalFrameCount: Int
+
+    // MARK: 传输状态
+
+    /// 下一个待发送包的索引
+    private var nextIndex: Int
     /// 待重试的数据包队列
     private var retryQueue: [Packet] = []
-    /// 下一个待发送包的索引
-    private var nextIndex = 0
     /// 已发送但未确认的数据包（key 为序号）
     private var inFlight: [UInt32: Packet] = [:]
     /// 各包已重试的次数
     private var retryCounts: [UInt32: Int] = [:]
-    /// 已确认的数据包序号集合
+    /// 已确认的数据包序号集合（用于去重，防止重复 ACK）
     private var ackedSequences: Set<UInt32> = []
     /// 各包的超时定时器
     private var timeoutWorkItems: [UInt32: DispatchWorkItem] = [:]
     /// .withResponse 模式下正在等待响应的槽位数
     private var responseSlots = 0
+    /// 已确认的字节数（累加，避免遍历全部包）
+    private var ackedBytes: Int
 
-    init(encodedFrames: [Data], payloadSizes: [Int], options: BluetoothTransferOptions) {
+    // MARK: 初始化
+
+    /// 创建新传输
+    init(data: Data, maxPayloadLength: Int, options: BluetoothTransferOptions) {
         self.options = options
-        self.totalPayloadBytes = payloadSizes.reduce(0, +)
-        self.packets = encodedFrames.enumerated().map {
-            Packet(sequence: UInt32($0.offset), data: $0.element, payloadSize: payloadSizes[$0.offset])
-        }
+        self.sourceData = data
+        self.maxPayloadLength = max(1, maxPayloadLength)
+        self.useApplicationFrame = options.useApplicationFrame
+        self.totalPayloadBytes = data.count
+        self.totalFrameCount = data.isEmpty ? 1 : (data.count + max(1, maxPayloadLength) - 1) / max(1, maxPayloadLength)
+        self.nextIndex = 0
+        self.ackedBytes = 0
     }
+
+    /// 从断点恢复传输
+    init(data: Data, maxPayloadLength: Int, options: BluetoothTransferOptions, resumeOffset: Int) {
+        self.options = options
+        self.sourceData = data
+        self.maxPayloadLength = max(1, maxPayloadLength)
+        self.useApplicationFrame = options.useApplicationFrame
+        self.totalPayloadBytes = data.count
+        let safePayload = max(1, maxPayloadLength)
+        self.totalFrameCount = data.isEmpty ? 1 : (data.count + safePayload - 1) / safePayload
+        self.nextIndex = resumeOffset / safePayload
+        self.ackedBytes = resumeOffset
+    }
+
+    // MARK: 懒加载生成帧
+
+    /// 按索引生成单个数据包（按需创建，不预存全部）
+    private func makePacket(at index: Int) -> Packet {
+        let payloadStart = index * maxPayloadLength
+        let payloadEnd = min(payloadStart + maxPayloadLength, sourceData.count)
+        let payload = sourceData.subdata(in: payloadStart..<payloadEnd)
+
+        let encodedData: Data
+        if useApplicationFrame {
+            // 应用层帧：加帧头 + CRC32
+            let frame = BluetoothProtocolFrame(
+                type: .data,
+                sequence: UInt32(index),
+                offset: UInt32(payloadStart),
+                totalLength: UInt32(sourceData.count),
+                payload: payload
+            )
+            encodedData = BluetoothProtocolCodec.encode(frame)
+        } else {
+            // 裸数据：直接使用 payload
+            encodedData = payload
+        }
+
+        return Packet(sequence: UInt32(index), data: encodedData, payloadSize: payload.count)
+    }
+
+    // MARK: 状态查询
 
     /// 已确认的 payload 字节数
-    var ackedPayloadBytes: Int {
-        packets
-            .filter { ackedSequences.contains($0.sequence) }
-            .map(\.payloadSize)
-            .reduce(0, +)
-    }
+    var ackedPayloadBytes: Int { ackedBytes }
+
+    /// 已确认的字节偏移量（用于断点续传）
+    var ackedOffset: Int { ackedBytes }
+
+    /// 原始数据的拷贝（用于断点续传保存上下文）
+    var sourceDataCopy: Data { sourceData }
 
     /// 所有包是否都已确认
-    var isComplete: Bool {
-        ackedSequences.count == packets.count
-    }
+    var isComplete: Bool { ackedBytes >= totalPayloadBytes }
 
     /// 是否可以发送下一个包
     /// 条件：有包待发 + 未超过 ACK 窗口 + 未超过响应窗口
     var canSendNext: Bool {
-        guard !retryQueue.isEmpty || nextIndex < packets.count else { return false }
+        guard !retryQueue.isEmpty || nextIndex < totalFrameCount else { return false }
         // applicationAck 模式：在途包数不能超过窗口
         if options.reliability == .applicationAck, inFlight.count >= options.ackWindow {
             return false
@@ -1120,7 +1241,9 @@ private final class ActiveTransfer {
         return true
     }
 
-    /// 取下一个待发送的包（优先重试队列）
+    // MARK: 包操作
+
+    /// 取下一个待发送的包（优先重试队列，否则懒加载生成新包）
     func nextPacket() -> Packet? {
         // 优先发送重试队列中的包
         if !retryQueue.isEmpty {
@@ -1132,9 +1255,9 @@ private final class ActiveTransfer {
             return packet
         }
 
-        // 发送正常队列中的下一个包
-        guard nextIndex < packets.count else { return nil }
-        let packet = packets[nextIndex]
+        // 懒加载生成新包
+        guard nextIndex < totalFrameCount else { return nil }
+        let packet = makePacket(at: nextIndex)
         nextIndex += 1
         inFlight[packet.sequence] = packet
         if options.writeType == .withResponse {
@@ -1145,7 +1268,15 @@ private final class ActiveTransfer {
 
     /// 标记某个包为已确认
     func markAcked(sequence: UInt32) {
+        guard !ackedSequences.contains(sequence) else { return } // 去重
         ackedSequences.insert(sequence)
+
+        // 累加已确认字节数
+        let index = Int(sequence)
+        let payloadStart = index * maxPayloadLength
+        let payloadEnd = min(payloadStart + maxPayloadLength, sourceData.count)
+        ackedBytes += payloadEnd - payloadStart
+
         inFlight.removeValue(forKey: sequence)
         retryQueue.removeAll { $0.sequence == sequence }
         timeoutWorkItems[sequence]?.cancel()

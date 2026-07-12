@@ -235,7 +235,8 @@ BluetoothDeviceProfile
 ├── ackWindow: 6（同时在途未确认的包数）
 ├── maxRetries: 3（单包最大重试次数）
 ├── ackTimeout: 1.5s（等待 ACK 的超时）
-└── useApplicationFrame: true（是否加帧头）
+├── useApplicationFrame: true（是否加帧头）
+└── supportsResume: false（是否支持断点续传，默认关闭）
 ```
 
 ### 4.4 传输流程图
@@ -288,6 +289,75 @@ flushActiveTransfer() ←──────────────────�
 1. **Info.plist** 中配置 `UIBackgroundModes → bluetooth-central`
 2. **初始化时**传入 `CBCentralManagerOptionRestoreIdentifierKey`
 3. **系统恢复时**回调 `willRestoreState`，自动重新发现服务和特征
+
+### 4.6 断点续传（可选，默认关闭）
+
+通过 `BluetoothTransferOptions.supportsResume` 控制，默认 `false`：
+
+```
+传输中断连
+    │
+    ├── supportsResume = false → 直接取消传输（默认行为）
+    │
+    └── supportsResume = true
+         ├── 保存上下文（原始 Data + 已确认 offset + 配置）
+         ├── 通知 delegate: didPauseTransfer(id, ackedOffset)
+         ├── 等待自动重连...
+         │
+         └── 重连成功 + 特征就绪
+              ├── 从 ackedOffset 创建新 ActiveTransfer
+              ├── 通知 delegate: didResumeTransfer(id, fromOffset)
+              └── 自动继续传输剩余部分
+```
+
+使用方式：
+
+```swift
+manager.sendReliableData(fileData, options: BluetoothTransferOptions(
+    role: .dataWrite,
+    reliability: .applicationAck,
+    useApplicationFrame: true,
+    supportsResume: true  // ← 开启断点续传
+))
+```
+
+> 注意：开启续传时原始数据会保留在内存中直到传输完成或取消。
+
+### 4.7 大文件传输优化
+
+本模块针对大文件传输（如 OTA 固件升级）做了三项优化：
+
+#### 4.7.1 懒加载帧生成
+
+`ActiveTransfer` 不再预创建全部帧，而是按需生成：
+
+```
+旧方式（100MB）：makeDataFrames → 61万个帧 → 61万个 encoded Data → 61万个 Packet
+                内存峰值 ≈ 420MB
+
+新方式（100MB）：只存原始 Data，nextPacket() 时按索引切片+编码
+                内存峰值 ≈ 100MB + 6个在途包（ACK窗口=6）
+```
+
+#### 4.7.2 进度回调节流
+
+每收到一个 ACK 只更新内部计数，进度回调最少间隔 100ms 才通知一次：
+
+```
+旧方式：每包回调一次 → 61万次 → 卡顿
+新方式：100ms 节流 → ~600 次回调 → 流畅
+（传输完成时立即通知，不受节流限制）
+```
+
+#### 4.7.3 MTU 自动协商
+
+iOS 上 CoreBluetooth 在连接时自动与外设协商 MTU 到双方支持的最大值，无需手动请求。`maximumWriteValueLength(for:)` 返回协商后的实际值，`sendReliableData` 内部已用它动态计算每帧 payload 大小：
+
+| MTU | 每帧 Payload | 100MB 帧数 |
+|-----|------------|-----------|
+| 185（默认） | ~160 B | ~655,360 |
+| 247（BLE 5.0） | ~222 B | ~471,859 |
+| 517（BLE 4.2+） | ~492 B | ~212,868 |
 
 ---
 
@@ -353,6 +423,12 @@ protocol BluetoothManagerDelegate: AnyObject {
     
     // 发生错误
     func bluetoothManager(_ manager: BluetoothManager, didFail error: Error)
+    
+    // 传输因断连被暂停（仅当 supportsResume = true 时触发）
+    func bluetoothManager(_ manager: BluetoothManager, didPauseTransfer id: UUID, ackedOffset: Int)
+    
+    // 传输从断点恢复（重连后自动恢复）
+    func bluetoothManager(_ manager: BluetoothManager, didResumeTransfer id: UUID, fromOffset: Int)
 }
 ```
 
@@ -442,13 +518,26 @@ manager.connect(device)
 
 // 6. 发送数据（在 didUpdateReady 回调后）
 manager.sendRaw(Data("PING".utf8), role: .commandWrite)          // 裸数据
-manager.sendReliableData(fileData, options: BluetoothTransferOptions(  // 可靠传输
+
+// 可靠传输（默认不支持断点续传）
+manager.sendReliableData(fileData, options: BluetoothTransferOptions(
     role: .dataWrite,
     reliability: .applicationAck,
     ackWindow: 6,
     maxRetries: 3,
     ackTimeout: 1.5,
     useApplicationFrame: true
+))
+
+// 可靠传输 + 断点续传（大文件推荐）
+manager.sendReliableData(otaFirmwareData, options: BluetoothTransferOptions(
+    role: .dataWrite,
+    reliability: .applicationAck,
+    ackWindow: 6,
+    maxRetries: 3,
+    ackTimeout: 1.5,
+    useApplicationFrame: true,
+    supportsResume: true  // 断连后自动从断点恢复
 ))
 
 // 7. 读取数据
