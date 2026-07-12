@@ -210,7 +210,7 @@ extension BluetoothDemoViewModel: BluetoothManagerDelegate {
     func bluetoothManager(_ manager: BluetoothManager, didConnect device: BluetoothDevice) {
         connectedDeviceName = device.name
         readyText = "发现服务/特征中"
-        addLog("已连接：\(device.name)，异常断开会按 1s/2s/4s/8s 指数退避重连。")
+        addLog("已连接：\(device.name)，异常断开会按指数退避+随机抖动重连。")
     }
 
     /// 连接断开（主动或异常）

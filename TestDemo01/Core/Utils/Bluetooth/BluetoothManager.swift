@@ -886,7 +886,7 @@ final class BluetoothManager: NSObject {
 
 // MARK: - CBCentralManagerDelegate
 
-/// 中央管理器委托实现：扫描回调、连接回调、断开回调
+/// 中央管理器委托实现：扫描回调、连接回调、连接失败、断开回调、状态恢复
 extension BluetoothManager: CBCentralManagerDelegate {
 
     /// 蓝牙适配器状态变化
@@ -1057,7 +1057,7 @@ extension BluetoothManager: CBPeripheralDelegate {
         }
     }
 
-    /// 收到外设发来的数据（notify/indicate 或 read 的回调）
+    /// 特征值更新回调（触发场景：notify/indicate 外设主动推送、read 读取响应均会触发）
     func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
         if let error {
             notifyFailure(error)
