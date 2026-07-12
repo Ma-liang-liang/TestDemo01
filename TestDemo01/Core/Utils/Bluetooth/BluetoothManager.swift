@@ -10,11 +10,13 @@
 /// **主要职责：**
 /// 1. 扫描 —— 按 service UUID 过滤扫描附近 BLE 设备
 /// 2. 连接 —— 连接设备、发现服务和特征、自动重连（指数退避）
-/// 3. 传输 —— 提供两种写入接口：
+/// 3. 传输 —— 提供三种数据接口：
 ///    - `sendRaw`: 裸数据写入，不加应用层包头，适合简单调试
 ///    - `sendReliableData`: 可靠传输，含包头+CRC+ACK窗口+超时重试
-/// 4. 状态管理 —— 维护连接状态机，通过 weak delegate 模式通知外部
+///    - `readValue`: 读取外设特征值
+/// 4. 状态管理 —— 维护连接状态机（NSLock 线程安全），通过 weak delegate 模式通知外部
 /// 5. 指标统计 —— 记录连接耗时、收发字节数、重连次数等
+/// 6. 断点续传 —— supportsResume 开启后，断连自动保存进度，重连后从断点恢复
 ///
 /// **线程模型：**
 /// 所有蓝牙操作在专用串行队列 `queue` 上执行，回调统一切回主线程。
@@ -22,6 +24,8 @@
 /// **关键设计决策：**
 /// - delegate 使用 NSHashTable.weakObjects 弱引用，避免循环引用
 /// - 连接超时、扫描超时、ACK 超时均通过 DispatchWorkItem 管理
+/// - ActiveTransfer 采用懒加载帧生成，避免大文件一次性加载全部帧到内存
+/// - 进度回调最少间隔 100ms 节流，避免高频回调卡顿主线程
 /// - 应用层协议帧格式见 BluetoothTransferProtocol.swift
 
 import CoreBluetooth
@@ -561,8 +565,11 @@ final class BluetoothManager: NSObject {
         queue.asyncAfter(deadline: .now() + configuration.connectTimeout, execute: workItem)
     }
 
-    /// 触发自动重连（指数退避策略）
-    /// 延迟序列：1s → 2s → 4s → 8s → 16s（上限 16s）
+    /// 触发自动重连（指数退避 + 随机抖动）
+    /// 延迟序列（baseDelay=1s 时的示例）：
+    ///   第 1 次：0.5~1.0s    第 2 次：1.0~2.0s    第 3 次：2.0~4.0s
+    ///   第 4 次：4.0~8.0s    第 5 次：8.0~16.0s（上限 16s）
+    /// 加入随机抖动（equal jitter）避免多设备同时断连后同步重连造成"惊群效应"
     private func scheduleReconnect() {
         // 检查是否允许重连、外设已断开、且未超过最大次数
         guard shouldAutoReconnect,
@@ -573,7 +580,10 @@ final class BluetoothManager: NSObject {
         reconnectAttempts += 1
         metrics.reconnectAttempts = reconnectAttempts
         // 指数退避：baseDelay × 2^(attempt-1)，上限 16 秒
-        let delay = min(pow(2, Double(reconnectAttempts - 1)) * configuration.reconnectBaseDelay, 16)
+        let baseDelay = min(pow(2, Double(reconnectAttempts - 1)) * configuration.reconnectBaseDelay, 16)
+        // equal jitter：保留一半固定延迟 + 一半随机延迟，避免多设备同步重连
+        let jitter = Double.random(in: 0..<baseDelay / 2)
+        let delay = baseDelay / 2 + jitter
         connectionState = .reconnecting(peripheral.identifier, attempt: reconnectAttempts)
         notifyMetrics()
 
@@ -799,7 +809,7 @@ final class BluetoothManager: NSObject {
 
     // MARK: - 内部：工具方法
 
-    /// 将数据按指定长度分块
+    /// 将数据按指定长度分块（工具方法，当前未使用，ActiveTransfer 内部已自带懒加载分块）
     private func chunk(data: Data, maxLength: Int) -> [Data] {
         guard !data.isEmpty else { return [Data()] }
         return stride(from: 0, to: data.count, by: maxLength).map { offset in
