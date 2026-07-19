@@ -200,9 +200,14 @@ extension MQTTDemoViewModel: MQTTManagerDelegate {
         addLog("收到 ← \(message.topic)（QoS \(message.qos.rawValue)）：\(message.string ?? "<\(message.payload.count) bytes>")")
     }
 
-    /// 消息发布成功
+    /// 消息已发出（QoS0 发出即回调，QoS1/2 进入发送队列后回调，非 Broker 确认）
     func mqttManager(_ manager: MQTTManager, didPublish messageID: UInt16, topic: String) {
-        addLog("发布成功：\(topic)，messageID：\(messageID)")
+        addLog("消息已发出 → \(topic)，messageID：\(messageID)")
+    }
+
+    /// QoS1/2 消息收到 Broker 确认
+    func mqttManager(_ manager: MQTTManager, didPublishAck messageID: UInt16) {
+        addLog("Broker 已确认 ✓，messageID：\(messageID)")
     }
 
     /// 订阅结果

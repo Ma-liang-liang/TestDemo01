@@ -95,13 +95,15 @@ graph TB
 | `reconnecting(attempt:)` | 异常断开后等待/执行第 N 次重连 |
 | `disconnecting` | 正在主动断开 |
 
+> 竞态防护：`disconnecting` 状态下到达的迟到 CONNACK 会被忽略（防止覆盖为主动断开状态后误触发重连）；`disconnected` 状态下到达的迟到断开回调会被忽略（防止重连耗尽后的重复通知）。
+
 > 库自带的 `connState` 只有 disconnected/connecting/connected 三态，缺少 `reconnecting` 与 `disconnecting`，业务 UI 无法区分"重连中"与"未连接"，因此封装层自维护五态状态机。
 
 ### 2.4 自动重连策略（equal-jitter 指数退避）
 
 关闭库自带的 `autoReconnect`，由封装层自管理：
 
-- 第 N 次重连的基准延迟：`fullDelay = reconnectBaseDelay × 2^(N-1)`（默认 1s → 2s → 4s → 8s → 16s）
+- 第 N 次重连的基准延迟：`fullDelay = reconnectBaseDelay × 2^(N-1)`（默认 1s → 2s → 4s → 8s → 16s），并以 `reconnectMaxDelay`（默认 60s）封顶
 - 最终延迟加入随机抖动：`delay = fullDelay / 2 + random(0, fullDelay / 2)`
 - 抖动可避免多台设备同时断线后同步重连导致的 Broker 惊群效应
 - 超过 `reconnectMaxAttempts`（默认 5 次）后进入 `disconnected` 并上报 `reconnectExhausted` 错误
@@ -137,6 +139,7 @@ graph TB
 | `connectTimeout` | 10 | 连接超时（秒） |
 | `reconnectMaxAttempts` | 5 | 最大重连次数 |
 | `reconnectBaseDelay` | 1 | 重连基础延迟（秒），按指数退避增长 |
+| `reconnectMaxDelay` | 60 | 重连延迟上限（秒），退避延迟超过后不再增长 |
 | `willMessage` | nil | 遗嘱消息：异常断开时由 Broker 代为发布 |
 | `allowUntrustCA` | false | 是否信任自签名 CA 证书（仅 TLS，**生产慎用**） |
 | `inflightWindowSize` | 10 | 未确认 QoS1/2 消息的在途窗口大小 |
@@ -259,8 +262,11 @@ protocol MQTTManagerDelegate: AnyObject {
     // 收到订阅消息
     func mqttManager(_ manager: MQTTManager, didReceive message: MQTTMessage)
 
-    // 消息发布成功（QoS0 发出即回调，QoS1/2 收到 Broker ACK 后回调）
+    // 消息已发出（QoS0 发出即回调，QoS1/2 进入发送队列后回调，非 Broker 确认）
     func mqttManager(_ manager: MQTTManager, didPublish messageID: UInt16, topic: String)
+
+    // QoS1 消息收到 Broker PUBACK、QoS2 收到 PUBCOMP（Broker 已确认接收）
+    func mqttManager(_ manager: MQTTManager, didPublishAck messageID: UInt16)
 
     // 订阅结果（成功 topic 与其被授予的 QoS）
     func mqttManager(_ manager: MQTTManager, didSubscribe success: [String: MQTTQoS], failed: [String])

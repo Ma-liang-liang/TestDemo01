@@ -139,6 +139,8 @@ struct MQTTConfiguration {
     var reconnectMaxAttempts: Int = 5
     /// 重连基础延迟（秒），实际延迟按指数退避：baseDelay × 2^(attempt-1)，再加随机抖动
     var reconnectBaseDelay: TimeInterval = 1
+    /// 重连最大延迟上限（秒），指数退避延迟超过此值后不再增长，避免重连间隔过大
+    var reconnectMaxDelay: TimeInterval = 60
     /// 遗嘱消息：客户端异常断开时由 Broker 代为发布，常用于上报离线状态
     var willMessage: MQTTMessage?
     /// 是否信任自签名 CA 证书（仅 enableTLS = true 时生效）
@@ -214,8 +216,10 @@ protocol MQTTManagerDelegate: AnyObject {
     func mqttManager(_ manager: MQTTManager, didDisconnect error: Error?)
     /// 收到订阅消息
     func mqttManager(_ manager: MQTTManager, didReceive message: MQTTMessage)
-    /// 消息发布成功（QoS0 发出即回调，QoS1/2 收到 Broker ACK 后回调）
+    /// 消息已发出（QoS0 发出即回调，QoS1/2 进入发送队列后回调，非 Broker 确认）
     func mqttManager(_ manager: MQTTManager, didPublish messageID: UInt16, topic: String)
+    /// QoS1 消息收到 Broker PUBACK 确认，QoS2 收到 PUBCOMP 确认（表示 Broker 已确认接收）
+    func mqttManager(_ manager: MQTTManager, didPublishAck messageID: UInt16)
     /// 订阅结果（成功 topic 与其被授予的 QoS，失败 topic 列表）
     func mqttManager(_ manager: MQTTManager, didSubscribe success: [String: MQTTQoS], failed: [String])
     /// 取消订阅成功
@@ -233,6 +237,7 @@ extension MQTTManagerDelegate {
     func mqttManager(_ manager: MQTTManager, didDisconnect error: Error?) {}
     func mqttManager(_ manager: MQTTManager, didReceive message: MQTTMessage) {}
     func mqttManager(_ manager: MQTTManager, didPublish messageID: UInt16, topic: String) {}
+    func mqttManager(_ manager: MQTTManager, didPublishAck messageID: UInt16) {}
     func mqttManager(_ manager: MQTTManager, didSubscribe success: [String: MQTTQoS], failed: [String]) {}
     func mqttManager(_ manager: MQTTManager, didUnsubscribe topics: [String]) {}
     func mqttManager(_ manager: MQTTManager, didUpdateMetrics metrics: MQTTMetricSnapshot) {}
@@ -344,14 +349,14 @@ final class MQTTManager: NSObject {
         connectionState.isConnected
     }
 
-    /// 当前使用的 Broker 地址
+    /// 当前使用的 Broker 地址（线程安全，内部切到 queue 读取）
     var currentHost: String {
-        configuration.host
+        onQueueSync { self.configuration.host }
     }
 
-    /// 当前生效的订阅 topic 列表
+    /// 当前生效的订阅 topic 列表（线程安全，内部切到 queue 读取）
     var subscribedTopics: [String] {
-        Array(activeSubscriptions.keys).sorted()
+        onQueueSync { Array(self.activeSubscriptions.keys).sorted() }
     }
 
     /// 离线缓存中待补发的消息条数
@@ -620,6 +625,8 @@ final class MQTTManager: NSObject {
 
         guard reconnectAttempts < configuration.reconnectMaxAttempts else {
             // 重连次数用尽，宣告失败并回到空闲
+            // 置 false 防止随后的 mqttDidDisconnect 回调再次进入此分支导致重复通知
+            shouldAutoReconnect = false
             connectionState = .disconnected
             notifyFailure(MQTTError.reconnectExhausted(attempts: reconnectAttempts))
             notifyDisconnected(error: error)
@@ -631,9 +638,10 @@ final class MQTTManager: NSObject {
         notifyMetrics()
         connectionState = .reconnecting(attempt: reconnectAttempts)
 
-        // equal-jitter 指数退避：fullDelay = baseDelay × 2^(attempt-1)，
+        // equal-jitter 指数退避：fullDelay = baseDelay × 2^(attempt-1)，不超过 reconnectMaxDelay，
         // 最终延迟 = fullDelay / 2 + random(0, fullDelay / 2)，避免多设备同步重连的惊群效应
-        let fullDelay = configuration.reconnectBaseDelay * pow(2, Double(reconnectAttempts - 1))
+        let rawDelay = configuration.reconnectBaseDelay * pow(2, Double(reconnectAttempts - 1))
+        let fullDelay = min(rawDelay, configuration.reconnectMaxDelay)
         let jitteredDelay = fullDelay / 2 + Double.random(in: 0..<(fullDelay / 2))
         let workItem = DispatchWorkItem { [weak self] in
             self?.connectInternal()
@@ -753,10 +761,17 @@ final class MQTTManager: NSObject {
         }
     }
 
-    /// 通知 delegate 消息发布成功
+    /// 通知 delegate 消息已发出
     private func notifyPublish(messageID: UInt16, topic: String) {
         DispatchQueue.main.async {
             self.delegates.forEach { $0.mqttManager(self, didPublish: messageID, topic: topic) }
+        }
+    }
+
+    /// 通知 delegate QoS1/2 消息收到 Broker 确认
+    private func notifyPublishAck(messageID: UInt16) {
+        DispatchQueue.main.async {
+            self.delegates.forEach { $0.mqttManager(self, didPublishAck: messageID) }
         }
     }
 
@@ -800,6 +815,8 @@ extension MQTTManager: CocoaMQTTDelegate {
     /// 收到 Broker 的 CONNACK（连接确认）
     func mqtt(_ mqtt: CocoaMQTT, didConnectAck ack: CocoaMQTTConnAck) {
         onQueue {
+            // 若已进入主动断开流程，忽略迟到的 CONNACK，防止覆盖 disconnecting 状态
+            if case .disconnecting = self.connectionState { return }
             self.cancelConnectTimeout()
             if ack == .accept {
                 let wasReconnecting: Bool
@@ -850,7 +867,16 @@ extension MQTTManager: CocoaMQTTDelegate {
 
     /// 收到 Broker 的 PUBACK（QoS1 发布确认）
     func mqtt(_ mqtt: CocoaMQTT, didPublishAck id: UInt16) {
-        // QoS1 的确认回调，发布成功统一由 didPublishMessage 通知，此处无需重复
+        onQueue {
+            self.notifyPublishAck(messageID: id)
+        }
+    }
+
+    /// 收到 Broker 的 PUBCOMP（QoS2 发布完成确认）
+    func mqtt(_ mqtt: CocoaMQTT, didPublishComplete id: UInt16) {
+        onQueue {
+            self.notifyPublishAck(messageID: id)
+        }
     }
 
     /// 订阅结果（成功 topic 与被授予的 QoS，失败 topic 列表）
@@ -903,6 +929,8 @@ extension MQTTManager: CocoaMQTTDelegate {
             }
             // 连接超时等场景已先行进入重连流程，此处跳过避免重复计数
             if case .reconnecting = self.connectionState { return }
+            // 重连耗尽等场景已通知过断开，此处跳过避免重复通知
+            if case .disconnected = self.connectionState { return }
             // 异常断开：进入自动重连流程（或宣告失败）
             self.handleUnexpectedDisconnect(error: err)
         }
