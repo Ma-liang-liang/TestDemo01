@@ -27,6 +27,7 @@ class UIKitDemoListController: SKBaseController {
         ]),
         ("硬件通信", [
             ("蓝牙通信优化", { BluetoothDemoController() }),
+            ("MQTT 通信", { MQTTDemoController() }),
         ]),
         ("其他", [
             ("HomeController", { HomeController() }),

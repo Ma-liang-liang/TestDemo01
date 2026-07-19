@@ -16,6 +16,7 @@ pod 'SmartCodable'
 pod 'SwifterSwift'
 pod 'CombineCocoa'
 pod 'Kingfisher'    # 图片加载
+pod 'CocoaMQTT'     # MQTT 客户端（EMQX 官方 Swift 实现）
 
 pod 'HXPhotoPicker','~> 5.0.0.2'
 

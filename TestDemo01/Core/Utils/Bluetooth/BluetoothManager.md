@@ -11,7 +11,7 @@ Core/Utils/Bluetooth/
 ├── BluetoothManager.swift           ← 核心管理器（单例），统筹扫描/连接/传输
 ├── BluetoothProfile.swift           ← 协议画像体系（角色、状态机、指标）
 ├── BluetoothTransferProtocol.swift  ← 应用层协议（帧结构、编解码、CRC32）
-└── README.md                        ← 本文档
+└── BluetoothManager.md              ← 本文档
 
 Features/UIKitDemo/Bluetooth/
 ├── BluetoothDemoController.swift     ← Demo UI 控制器（UIKit + Combine 绑定）
