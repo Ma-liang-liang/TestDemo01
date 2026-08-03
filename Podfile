@@ -34,19 +34,9 @@ pod 'libwebp'
 end
 
 post_install do |installer|
-  excluded_archs = 'arm64'
-
   installer.pods_project.targets.each do |target|
     target.build_configurations.each do |config|
       config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '16.0'
-      config.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = excluded_archs
-    end
-  end
-
-  installer.aggregate_targets.each do |target|
-    target.xcconfigs.each do |variant, xcconfig|
-      xcconfig.attributes['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = excluded_archs
-      xcconfig.save_as(target.xcconfig_path(variant))
     end
   end
 end
